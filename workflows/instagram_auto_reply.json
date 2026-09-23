@@ -1,0 +1,83 @@
+{
+  "name": "Instagram Auto Reply",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "instagram-inbound",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "id": "8d2f0a1c-6b4e-4a7d-9c11-1a2b3c4d5e6f",
+      "name": "Instagram Inbound",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 300],
+      "webhookId": "b7c1e2d3-4f56-4789-a012-3456789abcde"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://127.0.0.1:8000/v1/reply",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ sender_id: $json.body.sender_id, text: $json.body.text }) }}",
+        "options": {}
+      },
+      "id": "91aa22bb-33cc-44dd-55ee-66778899aabb",
+      "name": "Generate Reply",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [520, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://127.0.0.1:8000/v1/send",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ recipient_id: $('Instagram Inbound').item.json.body.sender_id, text: $json.reply }) }}",
+        "options": {}
+      },
+      "id": "aabbccdd-eeff-4011-8222-333344445555",
+      "name": "Send Instagram Reply",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [820, 300],
+      "notes": "Tokenlar Python .env dosyasındadır. n8n Docker içindeyse her iki URL'deki 127.0.0.1 değerini host.docker.internal yap."
+    }
+  ],
+  "connections": {
+    "Instagram Inbound": {
+      "main": [
+        [
+          {
+            "node": "Generate Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Reply": {
+      "main": [
+        [
+          {
+            "node": "Send Instagram Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "active": false
+}
