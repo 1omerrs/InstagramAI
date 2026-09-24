@@ -1,27 +1,52 @@
 # Instagram Auto Reply
 
-Luminova Instagram hesabına gelen doğrudan mesajları yanıtlayan bir otomasyon. Python mesajı alır, konuşmayı hatırlar ve yanıtı üretir. n8n bu adımları sıraya koyar.
+Instagram doğrudan mesajlarını alan, yanıt üreten ve geri gönderen bir otomasyon.
 
-Canlı Instagram bağlantısı olmadan da çalışır. Erişim anahtarı boşken yanıt üretilir ve yerel bir kutuya yazılır. Böylece akış, Meta hesabı bağlanmadan denenebilir.
+Gelen mesaj bir webhook ile gelir. Metin bir dil modeline gider. Üretilen yanıt ya Instagram’a yazılır ya da, hesap bağlı değilse, yerel bir kutuda saklanır. Aynı mesaj iki kez işlenmez. Konuşma geçmişi saklanır, böylece yanıt bir önceki mesajlara bakabilir.
 
-## Ne yapar
+Yanıtın ne söyleyeceği `prompts/system.txt` dosyasındadır. Bu dosya değiştirilerek başka bir hesap veya başka bir konu için kullanılabilir.
 
-Müşteri bir mesaj gönderir. Sistem kısa Türkçe bir yanıt yazar, fiyat söylemez ve görüşme için bir temsilciye yönlendirir. Çalışma saatleri her gün 08:00–18:00 olarak kabul edilir. Hizmetler mobil uygulama tasarımı, web sitesi tasarımı ve n8n otomasyonudur. Bu kurallar `prompts/system.txt` içindedir.
+## Nasıl çalışır
 
-## Akış
+İki parça vardır. Python mesajı ve modeli yönetir. n8n adımları birbirine bağlar.
 
-1. Instagram, gelen mesajı Python’daki `/webhook` adresine yollar.
-2. Python mesajı temizler. Kendi mesajlarını, silinenleri ve tekrar gelenleri eler.
-3. n8n adresi tanımlıysa temiz mesaj oraya gider. Değilse Python yanıtı kendisi üretir.
-4. n8n, `POST /v1/reply` ile yanıt ister.
-5. n8n, `POST /v1/send` ile yanıtı gönderir.
-6. Instagram anahtarı yoksa yanıt yerel kutuya yazılır. Anahtar varsa Instagram’a gider.
+```
+Instagram
+   │
+   ▼
+Python  GET/POST /webhook
+   │
+   ▼
+n8n     gelen mesajı alır
+   │
+   ├─► POST /v1/reply   yanıt üret
+   │
+   └─► POST /v1/send    yanıtı gönder
+              │
+              ├─ Instagram API   hesap bağlıysa
+              └─ yerel kutu      hesap bağlı değilse
+```
 
-n8n akışı `workflows/instagram_auto_reply.json` dosyasındadır.
+Python, webhook’a gelen olayı ayıklar. Kendi gönderdiği mesajları, silinen mesajları, metinsiz olayları ve daha önce gördüğü mesaj kimliklerini atlar. n8n adresi tanımlıysa temiz mesajı n8n’e bırakır. Tanımlı değilse yanıtı kendisi üretir ve göndermeyi dener.
+
+n8n akışı `workflows/instagram_auto_reply.json` içindedir. Üç düğümü vardır: webhook, yanıt isteği, gönderim isteği.
+
+## Teknolojiler
+
+| Parça | Ne için |
+| --- | --- |
+| Python | Uygulama |
+| FastAPI | HTTP API |
+| Uvicorn | Sunucu |
+| OpenAI API | Yanıt üretimi (`gpt-4o-mini`) |
+| SQLite | Konuşma geçmişi, işlenen mesajlar, yerel kutu |
+| n8n | Akışın sırası |
+| Instagram API | Mesaj alma ve gönderme (`graph.instagram.com`) |
+| pytest | Webhook ve gönderim testleri |
+
+Ayarlar `.env` dosyasından okunur. Örnek alanlar `.env.example` içindedir. `.env` depoya girmez.
 
 ## Çalıştırma
-
-Python 3.11 veya üzeri gerekir.
 
 ```powershell
 python -m venv .venv
@@ -30,23 +55,13 @@ Copy-Item .env.example .env
 .\.venv\Scripts\python.exe -m app
 ```
 
-Servis `http://127.0.0.1:8000` adresinde açılır. `.env` içine OpenAI anahtarını yaz. Anahtar `sk-` ile başlar. Model varsayılan olarak `gpt-4o-mini` kullanılır.
-
-Sağlık kontrolü:
-
-```powershell
-Invoke-RestMethod http://127.0.0.1:8000/health
-```
-
-Testler:
+API `http://127.0.0.1:8000` adresinde dinler. `OPENAI_API_KEY` doluysa model yanıt üretir. Boşsa sabit bir test cümlesi döner.
 
 ```powershell
 .\.venv\Scripts\python.exe -m pytest -q
 ```
 
-## n8n
-
-n8n kuruluysa akışı içe aktar:
+n8n akışını yüklemek için:
 
 ```powershell
 n8n import:workflow --input=workflows/instagram_auto_reply.json
@@ -54,26 +69,18 @@ n8n publish:workflow --id=instagramAutoReply
 n8n start
 ```
 
-Üretim webhook adresi `http://127.0.0.1:5678/webhook/instagram-inbound` olur. Python’un mesajı n8n’e iletmesi için `.env` içinde `N8N_WEBHOOK_URL` bu adres olmalıdır. Deneme için mesajı doğrudan bu webhook’a da gönderebilirsin.
+Webhook adresi `http://127.0.0.1:5678/webhook/instagram-inbound` olur. Python’un olayı bu adrese iletmesi için `N8N_WEBHOOK_URL` aynı değeri almalıdır.
 
-n8n’in kendi Assistant kurulumu bu projeye ait değildir. Oraya anahtar veya sandbox girmen gerekmez.
-
-## Uçlar
+## HTTP uçları
 
 | Yol | İş |
 | --- | --- |
-| `GET /health` | Model, n8n ve Instagram ayarının dolu olup olmadığını söyler |
-| `GET /webhook` | Meta doğrulama isteğine `hub.challenge` döner |
-| `POST /webhook` | Gelen Instagram olayını işler |
-| `POST /v1/reply` | Metne göre yanıt üretir |
+| `GET /health` | Model, n8n ve Instagram ayarlarının dolu olup olmadığı |
+| `GET /webhook` | Meta doğrulaması (`hub.challenge`) |
+| `POST /webhook` | Gelen mesaj olayı |
+| `POST /v1/reply` | Metinden yanıt |
 | `POST /v1/send` | Yanıtı Instagram’a veya yerel kutuya yazar |
-| `GET /v1/outbox` | Son yerel yanıtları listeler |
-| `GET /v1/conversations/{sender_id}` | Bir kişinin son mesajlarını döner |
+| `GET /v1/outbox` | Yerel kutudaki son yanıtlar |
+| `GET /v1/conversations/{sender_id}` | Bir gönderenin son mesajları |
 
-## Ayarlar
-
-`.env.example` dosyasını kopyala. Gerçek değerleri `.env` içine yaz. Bu dosya git’e girmez.
-
-Instagram’a gerçekten göndermek için `IG_ACCESS_TOKEN` ve `IG_USER_ID` gerekir. İkisi boşken `POST /v1/send` yine 200 döner, `mode` alanı `local` olur ve metin `GET /v1/outbox` ile okunur.
-
-Webhook imzası için `META_APP_SECRET` doldurulursa gelen istekler doğrulanır. Boşsa imza kontrolü atlanır. Bu yalnızca yerel deneme içindir.
+`IG_ACCESS_TOKEN` ve `IG_USER_ID` boşken gönderim Instagram’a gitmez. `POST /v1/send` bu durumda `200` döner ve `mode` alanı `local` olur. `META_APP_SECRET` doluysa gelen webhook imzası kontrol edilir.
