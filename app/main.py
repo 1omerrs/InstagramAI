@@ -9,7 +9,7 @@ from app.agent import generate_reply
 from app.config import get_settings
 from app.dispatch import handle_inbound, send_instagram_text
 from app.instagram import extract_inbound_messages, signature_is_valid, verification_challenge
-from app.memory import init_db, recent_messages
+from app.memory import init_db, recent_messages, recent_outbox, save_outbox
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 log = logging.getLogger(__name__)
@@ -83,11 +83,24 @@ async def reply(body: ReplyRequest) -> dict:
 
 @app.post("/v1/send")
 async def send(body: SendRequest):
+    text = body.text.strip()
     try:
-        result = await send_instagram_text(body.recipient_id, body.text.strip())
-    except RuntimeError as error:
-        return JSONResponse({"delivered": False, "error": str(error)}, status_code=503)
-    return {"delivered": True, "result": result}
+        result = await send_instagram_text(body.recipient_id, text)
+    except RuntimeError:
+        save_outbox(body.recipient_id, text, "local")
+        return {
+            "delivered": False,
+            "mode": "local",
+            "recipient_id": body.recipient_id,
+            "text": text,
+        }
+    save_outbox(body.recipient_id, text, "instagram")
+    return {"delivered": True, "mode": "instagram", "result": result}
+
+
+@app.get("/v1/outbox")
+async def outbox() -> dict:
+    return {"messages": recent_outbox()}
 
 
 @app.get("/v1/conversations/{sender_id}")

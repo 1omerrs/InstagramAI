@@ -40,9 +40,10 @@ async def _complete(history: list[dict[str, str]]) -> str:
         "model": settings.openai_model,
         "temperature": 0.4,
         "max_tokens": 800,
-        "reasoning_effort": "low",
         "messages": [{"role": "system", "content": load_system_prompt()}, *history],
     }
+    if "gpt-oss" in settings.openai_model:
+        payload["reasoning_effort"] = "low"
     url = settings.openai_base_url.rstrip("/") + "/chat/completions"
     headers = {"Authorization": f"Bearer {settings.openai_api_key}"}
     try:

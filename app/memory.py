@@ -70,6 +70,57 @@ def add_message(sender_id: str, role: str, content: str) -> None:
         )
 
 
+def init_outbox() -> None:
+    with _connect() as connection:
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS outbox (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                recipient_id TEXT NOT NULL,
+                text TEXT NOT NULL,
+                mode TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            )
+            """
+        )
+
+
+def save_outbox(recipient_id: str, text: str, mode: str) -> None:
+    now = datetime.now(timezone.utc).isoformat()
+    init_outbox()
+    with _connect() as connection:
+        connection.execute(
+            """
+            INSERT INTO outbox (recipient_id, text, mode, created_at)
+            VALUES (?, ?, ?, ?)
+            """,
+            (recipient_id, text, mode, now),
+        )
+
+
+def recent_outbox(limit: int = 10) -> list[dict[str, str]]:
+    init_outbox()
+    with _connect() as connection:
+        rows = connection.execute(
+            """
+            SELECT recipient_id, text, mode, created_at
+            FROM outbox
+            ORDER BY id DESC
+            LIMIT ?
+            """,
+            (limit,),
+        ).fetchall()
+    return [
+        {
+            "recipient_id": row["recipient_id"],
+            "text": row["text"],
+            "mode": row["mode"],
+            "created_at": row["created_at"],
+        }
+        for row in rows
+    ]
+
+
 def recent_messages(sender_id: str, limit: int) -> list[dict[str, str]]:
     with _connect() as connection:
         rows = connection.execute(
