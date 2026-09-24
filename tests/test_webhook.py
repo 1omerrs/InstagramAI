@@ -135,7 +135,10 @@ def test_reply_endpoint_uses_fallback_without_api_key(client):
     assert "test yanıtı" in response.json()["reply"]
 
 
-def test_send_without_token_returns_503(client):
+def test_send_without_token_is_stored_locally(client):
     response = client.post("/v1/send", json={"recipient_id": "customer-1", "text": "Selam"})
-    assert response.status_code == 503
+    assert response.status_code == 200
     assert response.json()["delivered"] is False
+    assert response.json()["mode"] == "local"
+    stored = client.get("/v1/outbox")
+    assert stored.json()["messages"][0]["text"] == "Selam"
